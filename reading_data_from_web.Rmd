@@ -1,0 +1,347 @@
+---
+title: "reading_data_from_web"
+author: "Johnstone Tcheou"
+date: "2024-10-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(p8105.datasets)
+library(leaflet)
+```
+
+## Example data
+
+- load tidyverse, p8105.datasets, and nyc_airbnb dataset
+- there is a unique Airbnb identifier, review scores with stars out of 5 multiplied by 2 (as they didn't want half stars)
+- this is the data we have so what kind of questions do we want to ask?
+
+* where are the max and min Airbnb prices?
+  * what are avg prices?
+  * what factors affect prices? how much does location, etc matter?
+* where are prices going up and down over time?
+* does room type affect availability (are private rooms more or less frequently available than whole apartments)?
+* what are locations of units 
+  * what areas are popular?
+  * how much does popularity = number of units? avg price?
+* are there repeat hosts?
+  * if so, what does that mean? (and what does that mean can mean a variety of things)
+
+
+```{r prices}
+data(nyc_airbnb)
+
+summary(pull(nyc_airbnb, price))
+
+nyc_airbnb |>
+  summarize (max_price = max (price))
+nyc_airbnb |>
+  summarize (min_price = min (price))
+nyc_airbnb |>
+  summarize (ave_price = mean (price))
+
+nyc_airbnb |> 
+  group_by(neighbourhood_group, neighbourhood) |>
+  summarize(max(n())) 
+
+nyc_airbnb |>
+  group_by(room_type) |>
+  summarize(mean_availability = mean(availability_365)) |>  
+  ggplot(aes(x = room_type, y = mean_availability)) +
+  geom_bar(stat = "identity")
+
+nyc_airbnb |>
+  group_by(neighbourhood_group) |>
+  summarize(
+    n = n(),
+    avg_price = mean(price),
+    avg_reviews_month = mean(reviews_per_month, na.rm = TRUE),
+    avg_num_reviews = mean(number_of_reviews, na.rm = TRUE)) 
+```
+
+Max price = `r max(pull(nyc_airbnb, price))`
+Min price = `r min(pull(nyc_airbnb, price))`
+Avg price = `r mean(pull(nyc_airbnb, price))`
+
+## More stuff
+
+```{r more stuff}
+nyc_airbnb |> 
+  filter(
+    neighbourhood_group == "Manhattan",
+    price < 1000  
+  ) |> 
+  ggplot(aes(x = lat, y = long, color = price)) +
+  geom_point(alpha = .1) 
+
+nyc_airbnb |> 
+  filter(
+    neighbourhood_group == "Manhattan",
+    price < 1000,
+    room_type == "Entire home/apt"
+  ) |> 
+  group_by(neighbourhood) |>
+  summarize(mean_price = mean(price)) |> 
+  arrange(mean_price) 
+
+nyc_airbnb |> 
+  filter(
+    neighbourhood_group == "Manhattan",
+    price < 1000,
+    room_type == "Entire home/apt"
+  ) |> 
+  mutate(neighbourhood = fct_reorder(neighbourhood, price)) |> # puts neighborhoods in order by avg price 
+  ggplot(aes(x = neighbourhood, y = price)) +
+  geom_violin() +
+  theme()
+```
+
+## how to make better maps
+
+`leaflet` package is great - look at intro to it at https://teachdatascience.com/leaflet/
+behaves similarly to ggplot - define aesthetics with lat and long variables from data, initialize leaflet, and add on tiles, then markers, and define further aesthetics like color, radius, etc
+`leaflet()` initializes leaflet, and `addTiles()` is what adds your data to a map
+Adding interactive graph to a static document like GitHub document doesn't work so well - ideal for .HTML instead
+
+```{r leaflet}
+
+
+nyc_airbnb |> 
+  filter(
+    neighbourhood_group == "Manhattan",
+    price < 1000  
+  ) |> 
+  leaflet() |> 
+  addTiles() 
+#  addMarkers(~lat, ~long) - running this will crash RStudio as there are way too many observations;
+
+pd <- colorNumeric(
+  palette = "viridis", 
+  domain = nyc_airbnb$review_scores_location
+)
+
+
+nyc_airbnb |> 
+  filter(
+    neighbourhood_group == "Manhattan",
+    price < 1000  
+  ) |> 
+  leaflet() |> 
+  addProviderTiles(providers$CartoDB.Positron) |> 
+  addCircleMarkers(
+    ~lat, ~long,
+    color = ~ pd(review_scores_location), radius = 2
+  )
+  
+```
+
+## Scraping web content
+Webpages are combined HTML (content) and CSS (styling) to make what we see on the webpage
+Retrieving HTML for a page with desired data retrieves that data, but also a bunch of other stuff
+Therefore, can be difficult to extract what you want from HTML
+
+## HTML and CSS
+CSS controls appearance, so CSS identifiers are scattered throughout HTML code
+HTML elements you want usually have **unique identifiers**
+Getting what you want from HTML is usually a question about using an appropriate CSS selector 
+Selector Gadget is most common tool you care about for right CSS selector
+Go to page you care about
+launch selector gadget
+Click on things you want
+Unclick things you do not want
+Keep going until only what you want is highlighted
+Copy the CSS selector
+
+
+## Scraping data
+Use rvest to do webscraping
+Workflow 
+- download HTML with read-html
+- Extract elements with html_elements() and CSS selector
+- extract content from elements using html_text(), html_table(), etc 
+
+## API
+API - application programming interfaces give a way to communicate with software
+Web APIs give way to request specific data from server
+However, APIs are not uniform, e.g. Star Wars API is different from NYC open data API, rnoaa package data comes from API
+i.e. **what is returned from one API is diff from another API**
+
+## Getting data into R
+Web APIs usually accessible via HTML 
+
+## API data format
+Some APIs have a button where you can easily download the .csv, but not all 
+There are reasons to not do this, as **data changes** so downloading a CSV is a previous snapshot that can be updated, and downloading a new CSV 
+and putting it into R are additional steps, when you can just connect to the API
+More general instances, you'll get files in JSON format JavaScript Object
+
+## Web data
+Web data is messy, will often take a lot of time to figure it out, i.e. how to get what you want and how to tidy it once you have it 
+
+
+# Code 
+
+Note - installation for Selector Gadget is just bookmarking the Selector Gadget JS link - it is something you will need bookmarked
+
+
+## Extracting tables
+
+We are working w 2013-2014 Ntl Survey on Drug use and Health data, which is kind of messy
+Structure has since been updated in later years but is still similar 
+Some govt agencies have switched to APIs, some have not, so working with tables is the only way you will be able to use it 
+
+First, need to define URL to be read later
+then read_html() on the URL you just saved, which is basically what your web browser does
+knowing that data are often in table, html_table() pulls CSS tags on our behalf
+So html_table() returns a table **indexed 1-15** - all 15 tables on the webpage 
+Now, we need to keep the first element
+
+The output is in a list, which is a format of basically a general collection of objects in R (of varying lengths)
+Since we just need to keep the first element, we will remove the rest of the tables in the list
+slice() function lets you select rows by number, so we will subtract 1st row
+
+```{r extracting tables}
+library(rvest)
+library(httr)
+
+url <- "http://samhda.s3-us-gov-west-1.amazonaws.com/s3fs-public/field-uploads/2k15StateFiles/NSDUHsaeShortTermCHG2015.htm"
+
+drug_use_html <- read_html(url)
+
+drug_use_html |> 
+  html_table()
+
+marj_use_df <-
+  drug_use_html |> 
+  html_table() |> 
+  first() |> 
+  slice(-1)
+```
+
+## learning assesssment
+
+HTML table is still returning list, but only has 1 object in it 
+We can still take first element of list
+However, titles of the variables have been read as first row, leaving columns named as X1-X4 accordingly
+Multiple ways to do this, one of which is specifying that first row are headers with header = TRUE in html_table()
+
+```{r learning assessment 1}
+col_url <- "https://www.bestplaces.net/cost_of_living/city/new_york/new_york"
+
+col_html <- read_html(col_url)
+
+col_html |> 
+  html_table(header = TRUE) |> 
+  first()
+
+nyc_cost_df <-
+  read_html("https://www.bestplaces.net/cost_of_living/city/new_york/new_york") |> 
+  html_table(header = TRUE) |> 
+  first()
+```
+
+
+## CSS selectors
+
+maybe we want data from webpage that isn't in table format, but we want it in a table
+How do we get these elements into a table in R?
+e.g. titles, runtime, year, etc from IMDB
+we will import the HTML and extract just the elements we want
+Use the Selector Gadget bookmark, select what you want, which will highlight the element in green, then what you don't want, which will highlight the element in red
+This will eventually output the CSS tags for the HTML elements you want at the bottom
+**MAKE SURE TO USE HTML_ELEMENTS() NOT HTML_ELEMENT() IF YOU WANT MORE THAN JUST THE FIRST INSTANCE OF YOUR ELEMENT**
+
+
+
+```{r css selectors}
+swm_url <- "https://www.imdb.com/list/ls070150896/"
+
+swm_html <- read_html(swm_url)
+
+
+swm_score_vec <- swm_html |> 
+  html_elements(".metacritic-score-box") |> 
+  html_text()
+
+swm_title_vec <- swm_html |> 
+  html_elements(".ipc-title-link-wrapper") |> 
+  html_text()
+
+swm_runtime_vec <- swm_html |> 
+  html_elements(".dli-title-metadata-item:nth-child(2)") |> 
+  html_text()
+
+swm_df <- 
+  tibble(
+    title = swm_title_vec,
+    runtime = swm_runtime_vec,
+    score = swm_score_vec
+  )
+
+books_url <- "https://books.toscrape.com/"
+
+books_html <- read_html(books_url)
+
+books_html |> 
+  html_elements(".product_pod a") |> 
+  html_text()
+
+books_html |> 
+  html_elements(".price_color") |> 
+  html_text()
+```
+
+## Some asides
+
+Be careful to not accidentally cause a DDoS when reading from the web
+This is also why Amazon put their reviews behind an API after Jeff had him do this exercise with Amazon reviews last year
+Another aside is sometimes these elements from the CSS selector can be unstable
+When you get read more or show more on a webpage, it shouldn't affect the webscraping - only exception is if you click read more and it refreshes, 
+but everything else is in the HTML
+If your elements are all on separate pages, like first page is only items 1-40, second page is 40-80, etc, then you would have to scrape from each page separately 
+
+## API
+
+NYC water consumption is available as an API
+Copy and paste this link for the API
+API knows we want semi leiglbe data and will try to give us semi legible data
+GET() is a common API call, so we will use this function and supply it the API link 
+
+Go to BRFSS URL on page (https://chronicdata.cdc.gov/Behavioral-Risk-Factors/Behavioral-Risk-Factors-Selected-Metropolitan-Area/acme-vg9e), click on export, select API endpoint on popup
+set data format to CSV 
+Note that there are API limits - sometimes you get restricted to only 1000 rows as in this case
+If you click on learn more about the limit, for **this particular API (and other APIs may have diff instructions for more rows)** you can specify more rows using query in GET() function
+e.g. query = list("$limit"= 500)
+Then if you are exporting data in this way, you will need to import the first 5000, then the next 5000, etc 
+
+```{r API CSV}
+(nyc_water <-
+  GET("https://data.cityofnewyork.us/resource/ia2d-e54m.csv")) |> 
+  content("parsed")
+```
+
+can also import as JSON
+
+```{r API JSON}
+nyc_water = 
+  GET("https://data.cityofnewyork.us/resource/ia2d-e54m.json") |> 
+  content("text") |>
+  jsonlite::fromJSON() |>
+  as_tibble()
+```
+
+## Pokemon API
+
+Once loading content(), this format is NOT in CSV, whole bunch of messy data
+In general, there are datasets more complicated than what CSVs look like, which is what APIs often return and this is one of those instances
+Getting data
+
+```{r}
+pokemon <- 
+  GET("http://pokeapi.co/api/v2/pokemon/1") |> 
+  content()
+
+pokemon$abilities
+```
+
