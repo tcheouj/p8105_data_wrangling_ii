@@ -1,0 +1,289 @@
+---
+title: "Strings and factors"
+output: html_notebook
+---
+
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(p8105.datasets)
+library(rvest)
+library(purrr)
+```
+
+# String manipulation
+
+Instead of putting things into dataframes, just put things into vectors for simpler examples of how strings are manipulated
+
+
+Use `str_detect()` to find specific matches in strings, passing it the string vector first and then the pattern to match afterwards
+Returns logical vector based on whether the pattern was found per element of your vector, e.g. checking for "a" returns FALSE TRUE FALSE FALSE since only "name" has "a"
+Note that string functions are **case sensitive** - must match pattern exactly, including capitalization
+`str_replace()` to replace a specified pattern with another pattern
+Note that default behavior of `str_replace()` is to change only the first instance, not all other instances
+
+```{r}
+string_vec = c("my", "name", "is", "skibidi")
+
+str_detect(string_vec, "a")
+
+str_replace(string_vec, "i", "I")
+```
+
+These are great, but we have exact matches for short patterns, basically 1 letter long. What if we have more complicated strings?
+Maybe you want to find a specific pattern, like starts with or ends with "i think"
+This is where regex becomes useful
+`^` indicates **beginning of a line**, so `"^i think"` returns TRUE TRUE TRUE FALSE and `$` indicates **ending of a line**, so `"i think$"` returns FALSE FALSE FALSE TRUE
+To allow for multiple options, use `[]` and then your options in the brackets, e.g. `[Pp]` accounts for either uppercase or lowercase p in that slot
+
+```{r}
+string_vec = c(
+  "i think we all rule for participating",
+  "i think i have been caught",
+  "i think this will be quite fun actually",
+  "it will be fun, i think"
+  )
+
+str_detect(string_vec, "i think")
+str_detect(string_vec, "^i think")
+str_detect(string_vec, "i think$")
+
+string_vec = c(
+  "Time for a Pumpkin Spice Latte!",
+  "went to the #pumpkinpatch last weekend",
+  "Pumpkin Pie is obviously the best pie",
+  "SMASHING PUMPKINS -- LIVE IN CONCERT!!"
+  )
+
+str_detect(string_vec, "pumpkin")
+str_detect(string_vec, "Pumpkin")
+str_detect(string_vec, "PUMPKIN")
+str_detect(string_vec,"[Pp]umpkin")
+```
+Can also use `[0-9]` to get all numbers from 0-9
+e.g. looking for `"^[0-9][a-z]"` searches for strings that start with any number between 0-9 and then any letter a-z (lowercase) at the beginning of the string
+```{r}
+string_vec = c(
+  '7th inning stretch',
+  '1st half soon to begin. Texas won the toss.',
+  'she is 5 feet 4 inches tall',
+  '3AM - cant sleep :('
+  )
+
+str_detect(string_vec, "^[0-9][a-z]")
+```
+What is a wildcard that will match any character? `.` matches any specific character
+```{r}
+string_vec = c(
+  'Its 7:11 in the evening',
+  'want to go to 7-11?',
+  'my flight is AA711',
+  'NetBios: scanning ip 203.167.114.66'
+  )
+
+
+str_detect(string_vec, "7.11")
+```
+Now when things get really weird
+What if we want to find `{}` but we don't mean for `[]` to be a catchall for the given characters we supply it - i.e. how do we **find special characters?**
+`str_detect` with `"["` will return error since it is reading `[` as the special character, which is expecting a closing bracket
+Need to break with `\\`, which is `\` but `\` is a special character, so we need to denote what we intend for `\` with `\\` to distinguish it from its special character use 
+Remember that you can look up basic pattern matching online 
+
+```{r}
+string_vec = c(
+  'The CI is [2, 5]',
+  ':-]',
+  ':-[',
+  'I found the answer on pages [6-7]'
+  )
+
+
+str_detect(string_vec, "\\[")
+```
+
+# Factors
+
+In code, a factor variable just looks like a regular old vector, but when printed, it will show you there are levels
+R default is for levels to be in alphabetical order, but you can change this with `as.numeric()`
+
+```{r}
+sex_vec <- factor(c("male", "male", "female", "female"))
+sex_vec
+sex_vec |> 
+  levels()
+
+sex_vec |> 
+  as.numeric()
+```
+
+To relevel factors, use `fct_relevel` and then pass it your specified levels or if only two levels, what the first level should be and it will implicitly set the second level 
+
+```{r}
+sex_vec <- fct_relevel(sex_vec, "male")
+```
+
+This is where you can get in problems with factors - underlying structure is entirely different based on ordering which will show up in plots, tables, regression, leading to unexpected output or results
+**Automatically recode/set the factor levels when initializing a factor variable so that you can keep track of what is going on throughout your analysis pipeline**
+All functions in `stringr` package start with `str`, including `str_dup` to duplicate strings, `str_length` to get length of strings, `str_remove` which is similar to `str_replace` but replaces pattern with a space
+Can put things in order of frequency 
+
+# NSDUH
+
+This is the data we worked on last lecture from the NSDUH study 
+We can read the table as HTML and use string and factor functions on it 
+`slice(-1)` is because we want to remove the first row, which is the encoding information
+
+We have variables for 12+, and 12-17 - 2013-2014 (percents), 2014-2015 (percents), and p value 
+Let's say we don't want p value so we can get rid of those
+We need to tidy up the data a bit and separate these variables into age, year, and their corresponding percent 
+You may notice that all of these variables are actually set to character since having a single character, as some of these percents have, will override any numeric observations and set the variable as character
+
+So our plan:
+- get rid of p values
+- pivot longer
+- convert to numeric
+
+After pivoting longer, we get age_year combined as a single variable - we need to split this into two variables
+Remember that since `(` is a special character, we need to use `\\` to break it 
+We will get rid of `)` in the year, either use `str_remove` or `str_replace`
+To convert percents to numeric, we can't just do as.numeric, as some of them have letters and R has no idea how to convert percents with letters to numbers
+Need to use string functions to remove `a-c` - we could be a bit more careful with `a-z` if we want - at the end, so `$`
+If R finds there is something that comes afterwards this pattern in the string that we don't expect, we **want it to throw an error message**
+Now we have this data, but we want to get rid of the country and region totals that are also in the dataset, so we can use `filter` and `!` to catch all rows that do not have either `"Total U.S."`, `"Northeast"`, `"Midwest"`, `"South"`, or `"West"`
+
+```{r}
+nsduh_url <- "http://samhda.s3-us-gov-west-1.amazonaws.com/s3fs-public/field-uploads/2k15StateFiles/NSDUHsaeShortTermCHG2015.htm"
+
+table_marj <-
+  read_html(nsduh_url) |> 
+  html_table() |> 
+  first() |>
+  slice(-1)
+
+
+table_marj <-
+  read_html(nsduh_url) |> 
+  html_table() |> 
+  first() |>
+  slice(-1) |> 
+  select(-contains("P value")) |> 
+  pivot_longer(
+    cols = -State,
+    names_to = "age_year",
+    values_to = "percent"
+  ) |> 
+  separate(age_year, into = c("age", "year"), sep = "\\(") |> 
+  mutate(
+    year = str_replace(year, "\\)", ""),
+    percent = str_replace(percent, "[a-c]$", ""),
+    percent = as.numeric(percent)
+  ) |> 
+  filter(!(State %in% c("Total U.S.", "Northeast", "Midwest", "South", "West")))
+
+```
+
+Plotting the data for just 12-17 yos
+Maybe we want to order states in order of their percents so that trends are clearer - `fct_reorder(State, percent)`
+
+```{r}
+table_marj |> 
+  filter(age == "12-17") |> 
+  ggplot(aes(x = State, y = percent, color = year)) +
+  geom_point() + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+
+table_marj |> 
+  filter(age == "12-17") |> 
+  mutate(
+    State = fct_reorder(State, percent)
+  ) |> 
+  ggplot(aes(x = State, y = percent, color = year)) +
+  geom_point() + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+```
+
+# NYC restaurant inspections
+
+Data includes things like inspection dates (some of which don't make sense), violation code, violation descriptions
+We can get counts of each grade per borough, using `count` and passing it `boro` and `grade`
+Then we can pivot this data wider to have a column for each grade
+
+We can filter data to only get those with A-C grades and without missing boroughs
+Then we can use string functions to look for pizza spots
+Before doing so, want to mutate `dba` to a sentence using `str_to_sentence`
+Then we can do a quick bar plot of borough and counts of pizza spots with inspections
+All this to show that with a categorical variable like borough, it will set it to alphabetical order by default
+We can change this by `mutate` and `fct_infreq`, e.g. reorder in order of frequency using `fct_infreq(boro)`, or by `mutate` and `fct_relevel` and specify a specific vector of levels
+
+```{r}
+data("rest_inspec")
+
+rest_inspec |> 
+  count(boro, grade) |> 
+  pivot_wider(
+    names_from = grade, 
+    values_from = n)
+
+rest_inspec <- 
+  rest_inspec |> 
+  filter(
+    str_detect(grade, "[A-C]"),
+    !(boro == "Missing")
+  )
+
+rest_inspec |> 
+  mutate(dba = str_to_sentence(dba)) |> 
+  filter(str_detect(dba, "Pizza")) |> 
+  mutate(boro = fct_infreq(boro)) |> 
+  ggplot(aes(x = boro)) +
+  geom_bar()
+```
+
+How can things go wrong?
+
+```{r}
+rest_inspec |> 
+  mutate(dba = str_to_sentence(dba)) |> 
+  filter(str_detect(dba, "Pizza")) |> 
+  mutate(
+    boro = fct_infreq(boro),
+    boro = str_replace(boro, "MANHATTAN", "THE CITY")
+  ) |> 
+  ggplot(aes(x = boro)) +
+  geom_bar()
+```
+
+In this example, we would expect the borough frequency to be maintained
+However, once we mutate with `str_replace` right after, it resets the factor levels to be in alphabetical order again
+Below code will work, doing it all in one step
+
+```{r}
+rest_inspec |> 
+  mutate(dba = str_to_sentence(dba)) |> 
+  filter(str_detect(dba, "Pizza")) |> 
+  mutate(
+    boro = fct_infreq(str_replace(boro, "MANHATTAN", "THE CITY"))
+  ) |> 
+  ggplot(aes(x = boro)) +
+  geom_bar()
+
+```
+
+Note that below is a nonsensical regression model, just to show behaviors in factors
+This gives 4 parameter estimates, implicitly defining a categorical variable with **THE BRONX AS THE REFERENCE GROUP** and **ASSUMING ALPHABETICAL ORDER, TOOK THE FIRST ONE AS THE REFERENCE GROUP**
+```{r}
+rest_inspec |> 
+  mutate(dba = str_to_sentence(dba)) |> 
+  filter(str_detect(dba, "Pizza")) |> 
+  lm(zipcode ~ boro, data = _)
+```
+
+# Midterm
+
+Make private repository and add bst-p8105 GitHub user to repository
+Do same kinds of stuff you would do elsewhere - make repository, set rest of it up
+Strict word limit of 500 words 
+Use `wordcountaddin::word_count("midterm.Rmd")` to get the word count
+Render to GitHub document as before
+Import Zillow dataset, make sure you can import, quality control, exploratory data analysis, and data visualization 
